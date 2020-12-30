@@ -10,14 +10,14 @@ For something in between a [pytorch](https://github.com/pytorch/pytorch) and a [
 
 This may not be the best deep learning framework, but it is a deep learning framework.
 
-The Tensor class is a wrapper around a numpy array, except it does Tensor things.
+Due to its extreme simplicity, it aims to be the easiest framework to add new accelerators to, with support for both inference and training. Support the simple basic ops, and you get SOTA [vision](https://arxiv.org/abs/1905.11946) `extra/efficientnet.py` and [language](https://arxiv.org/abs/1706.03762) `extra/transformer.py` models. We are working on support for the Apple Neural Engine.
 
-tinygrad is also a city in Russia.
+Eventually, we will build custom hardware for tinygrad, and it will be blindingly fast. Now, it is slow.
 
 ### Installation
 
 ```bash
-pip3 install tinygrad --upgrade
+pip3 install git+https://github.com/geohot/tinygrad.git --upgrade
 ```
 
 ### Example
@@ -48,7 +48,7 @@ print(x.grad)  # dz/dx
 print(y.grad)  # dz/dy
 ```
 
-### Neural networks?
+## Neural networks?
 
 It turns out, a decent autograd tensor library is 90% of what you need for neural networks. Add an optimizer (SGD, RMSprop, and Adam implemented) from tinygrad.optim, write some boilerplate minibatching code, and you have all you need.
 
@@ -57,12 +57,11 @@ It turns out, a decent autograd tensor library is 90% of what you need for neura
 ```python
 from tinygrad.tensor import Tensor
 import tinygrad.optim as optim
-from tinygrad.utils import layer_init_uniform
 
 class TinyBobNet:
   def __init__(self):
-    self.l1 = Tensor(layer_init_uniform(784, 128))
-    self.l2 = Tensor(layer_init_uniform(128, 10))
+    self.l1 = Tensor.uniform(784, 128)
+    self.l2 = Tensor.uniform(128, 10)
 
   def forward(self, x):
     return x.dot(self.l1).relu().dot(self.l2).logsoftmax()
@@ -74,51 +73,88 @@ optim = optim.SGD([model.l1, model.l2], lr=0.001)
 
 out = model.forward(x)
 loss = out.mul(y).mean()
+optim.zero_grad()
 loss.backward()
 optim.step()
 ```
 
-### GPU Support?!
+## GPU and Accelerator Support
 
-tinygrad supports GPUs through PyOpenCL. Not all ops are supported yet on the backward pass.
+tinygrad supports GPUs through PyOpenCL.
 
 ```python
 from tinygrad.tensor import Tensor
-(Tensor.ones(4,4).cuda() + Tensor.ones(4,4).cuda()).cpu()
+(Tensor.ones(4,4).gpu() + Tensor.ones(4,4).gpu()).cpu()
 ```
 
-### ImageNet inference
+### ANE Support?!
+
+If all you want to do is ReLU, you are in luck! You can do very fast ReLU (at least 30 MEGAReLUs/sec confirmed)
+
+Requires your Python to be signed with `ane/lib/sign_python.sh` to add the `com.apple.ane.iokit-user-access` entitlement, which also requires `amfi_get_out_of_my_way=0x1` in your `boot-args`. Build the library with `ane/lib/build.sh`
+
+```python
+from tinygrad.tensor import Tensor
+
+a = Tensor([-2,-1,0,1,2]).ane()
+b = a.relu()
+print(b.cpu())
+```
+
+Warning: do not rely on the ANE port. It segfaults sometimes. So if you were doing something important with tinygrad and wanted to use the ANE, you might have a bad time.
+
+### Adding an accelerator
+
+You need to support 14 basic ops:
+
+```
+Relu, Log, Exp                  # unary ops
+Add, Sub, Mul, Pow              # binary ops (with broadcasting)
+Sum, Max                        # reduce ops (with axis argument)
+Dot, Conv2D                     # matrix multiplication and conv
+Reshape, Transpose, Slice       # moving things around ops
+Pad2D, Unpad2D                  # stupid (refactor to Slice)
+```
+
+## ImageNet inference
 
 Despite being tiny, tinygrad supports the full EfficientNet. Pass in a picture to discover what it is.
 
 ```bash
-python3 examples/efficientnet.py https://upload.wikimedia.org/wikipedia/commons/4/41/Chicken.jpg
+ipython3 examples/efficientnet.py https://upload.wikimedia.org/wikipedia/commons/4/41/Chicken.jpg
 ```
 
 Or, if you have a webcam and cv2 installed
 
 ```bash
-python3 examples/efficientnet.py webcam
+ipython3 examples/efficientnet.py webcam
 ```
 
 PROTIP: Set "GPU=1" environment variable if you want this to go faster.
 
-### The promise of small
+PROPROTIP: Set "DEBUG=1" environment variable if you want to see why it's slow.
+
+### tinygrad also supports GANs
+
+See `examples/mnist_gan.py`
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/geohot/tinygrad/master/docs/mnist_by_tinygrad.jpg">
+</p>
+
+## The promise of small
 
 tinygrad will always be below 1000 lines. If it isn't, we will revert commits until tinygrad becomes smaller.
 
 ### Running tests
 
 ```bash
-python -m pytest
+python3 -m pytest
 ```
 
 ### TODO
 
 * Train an EfficientNet on ImageNet
-  * Make broadcasting work on the backward pass (simple please)
-  * EfficientNet backward pass
-  * Tensors on GPU (a few more backward)
 * Add a language model. BERT?
 * Add a detection model. EfficientDet?
 * Reduce code

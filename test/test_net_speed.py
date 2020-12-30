@@ -3,9 +3,8 @@ import time
 import cProfile
 import pstats
 import unittest
-import numpy as np
 import torch
-from tinygrad.tensor import Tensor
+from tinygrad.tensor import Tensor, GPU, ANE, Device
 
 def start_profile():
   import time
@@ -21,6 +20,8 @@ def stop_profile(pr, sort='cumtime'):
   ps.print_stats(0.2)
 
 class TestConvSpeed(unittest.TestCase):
+  device= Device.CPU
+
   def test_mnist(self):
     # https://keras.io/examples/vision/mnist_convnet/
     conv = 3
@@ -40,41 +41,38 @@ class TestConvSpeed(unittest.TestCase):
     mp = torch.nn.MaxPool2d((2,2))
     lsm = torch.nn.LogSoftmax(dim=1)
 
-    with torch.autograd.profiler.profile(record_shapes=True) as tprof:
-      cnt = 5
-      fpt, bpt = 0.0, 0.0
-      for i in range(cnt):
-        et0 = time.time()
-        x = torch.randn(128, 1, 28, 28, requires_grad=True)
-        x = mp(c2d(x,c1).relu())
-        x = mp(c2d(x,c2).relu())
-        x = x.reshape(x.shape[0], -1)
-        out = lsm(x.matmul(l1))
-        out = out.mean()
-        et1 = time.time()
-        out.backward()
-        et2 = time.time()
-        fpt += (et1-et0)
-        bpt += (et2-et1)
+    cnt = 5
+    fpt, bpt = 0.0, 0.0
+    for i in range(cnt):
+      et0 = time.time()
+      x = torch.randn(128, 1, 28, 28, requires_grad=True)
+      x = mp(c2d(x,c1).relu())
+      x = mp(c2d(x,c2).relu())
+      x = x.reshape(x.shape[0], -1)
+      out = lsm(x.matmul(l1))
+      out = out.mean()
+      et1 = time.time()
+      out.backward()
+      et2 = time.time()
+      fpt += (et1-et0)
+      bpt += (et2-et1)
 
     fpt_baseline = (fpt*1000/cnt)
     bpt_baseline = (bpt*1000/cnt)
     print("torch forward pass:  %.3f ms" % fpt_baseline)
     print("torch backward pass: %.3f ms" % bpt_baseline)
 
-    print(tprof.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
-
     # ****** tinygrad compare *******
 
-    c1 = Tensor(c1.detach().numpy())
-    c2 = Tensor(c2.detach().numpy())
-    l1 = Tensor(l1.detach().numpy())
+    c1 = Tensor(c1.detach().numpy(), device=self.device)
+    c2 = Tensor(c2.detach().numpy(), device=self.device)
+    l1 = Tensor(l1.detach().numpy(), device=self.device)
 
     cnt = 5
     fpt, bpt = 0.0, 0.0
     for i in range(1+cnt):
       et0 = time.time()
-      x = Tensor.randn(128, 1, 28, 28)
+      x = Tensor.randn(128, 1, 28, 28, device=self.device)
       x = x.conv2d(c1).relu().avg_pool2d()
       x = x.conv2d(c2).relu().max_pool2d()
       x = x.reshape(shape=(x.shape[0], -1))
@@ -95,7 +93,14 @@ class TestConvSpeed(unittest.TestCase):
     print("forward pass:  %.3f ms, %.2fx off baseline %.3f ms" % (fpt, fpt/fpt_baseline, fpt_baseline))
     print("backward pass: %.3f ms, %.2fx off baseline %.3f ms" % (bpt, bpt/bpt_baseline, bpt_baseline))
 
+@unittest.skipUnless(GPU, "Requires GPU")
+class TestConvSpeedGPU(TestConvSpeed):
+  device = Device.GPU
+
+@unittest.skipUnless(ANE, "Requires ANE")
+class TestConvSpeedANE(TestConvSpeed):
+  device=Device.ANE
+
 
 if __name__ == '__main__':
   unittest.main()
-
